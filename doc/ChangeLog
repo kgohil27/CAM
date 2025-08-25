@@ -36,6 +36,71 @@ List all files added and what they do:
 
 List all existing files that have been modified, and describe the changes:
 
+Use git sparse checkout for all repos, combine clubb and silhs into clubb.
+git sparse checkout has been available in manage_externals since version 1.2.1.
+
+Fixes #912 -> cosp2 svn access to github support is ending soon
+
+Describe any changes made to build system:
+
+Build path were modified in the "configure" Perl script, as well
+as in the COSP Makefile.in file, in order to account for the
+new source code paths.
+
+Describe any changes made to the namelist: N/A
+
+List any changes to the defaults for the boundary datasets: N/A
+
+Describe any substantial timing or memory changes: N/A
+
+Code reviewed by: nusbaume, cacraigucar, gold2718
+
+List all files eliminated: N/A
+
+List all files added and what they do:
+
+A       src/physics/.clubb_sparse_checkout
+ - Provides information on how to do the git sparse checkout of CLUBB and SILHS
+
+A       src/physics/cosp2/.cosp_sparse_checkout
+ - Provides information on how to do the git sparse checkout of COSP
+
+List all existing files that have been modified, and describe the changes:
+
+M       Externals_CAM.cfg
+ - Change the Github-SVN bridge method to git sparse checkout
+
+M       bld/configure
+ - Update source code paths for CLUBB, SILHS, and COSP
+
+M       src/physics/cosp2/Makefile.in
+ - Update source code paths for relevant COSP files.
+
+If there were any failures reported from running test_driver.sh on any test
+platform, and checkin with these failures has been OK'd by the gatekeeper,
+then copy the lines from the td.*.status files for the failed tests to the
+appropriate machine below.  All failed tests must be justified.
+
+cheyenne/intel/aux_cam:
+
+ ERP_Ln9_Vnuopc.C96_C96_mg17.F2000climo.cheyenne_intel.cam-outfrq9s_mg3 (Overall: FAIL) details:
+    FAIL ERP_Ln9_Vnuopc.C96_C96_mg17.F2000climo.cheyenne_intel.cam-outfrq9s_mg3 MODEL_BUILD time=3
+ ERP_Ln9_Vnuopc.f09_f09_mg17.FCSD_HCO.cheyenne_intel.cam-outfrq9s (Overall: FAIL) details:
+    FAIL ERP_Ln9_Vnuopc.f09_f09_mg17.FCSD_HCO.cheyenne_intel.cam-outfrq9s COMPARE_base_rest
+ SMS_Lh12_Vnuopc.f09_f09_mg17.FCSD_HCO.cheyenne_intel.cam-outfrq3h (Overall: DIFF) details:
+    FAIL SMS_Lh12_Vnuopc.f09_f09_mg17.FCSD_HCO.cheyenne_intel.cam-outfrq3h BASELINE /glade/p/cesm/amwg/cesm_baselines/cam6_3_134: DIFF
+ - pre-existing failure
+
+izumi/nag/aux_cam:
+
+ DAE_Vnuopc.f45_f45_mg37.FHS94.izumi_nag.cam-dae (Overall: FAIL) details:
+    FAIL DAE_Vnuopc.f45_f45_mg37.FHS94.izumi_nag.cam-dae RUN time=10
+ - pre-existing failure
+
+izumi/gnu/aux_cam: ALL PASS
+
+Summarize any changes to answers: bit-for-bit unchanged
+
 M	bld/build-namelist
  - set atm_ozone_frequency when CMEPS mediator is used
 
