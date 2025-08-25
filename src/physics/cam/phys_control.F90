@@ -91,6 +91,11 @@ logical :: prog_modal_aero ! determines whether prognostic modal aerosols are pr
 ! Option to use heterogeneous freezing
 logical, public, protected :: use_hetfrz_classnuc = .false.
 
+! +KG
+! Option to implement inertial limitation from Barahona et al. (2010)
+logical, public, protected :: use_b10_ndrop = .false.
+! -KG
+
 ! Which gravity wave sources are used?
 logical, public, protected :: use_gw_oro = .true.         ! Orography.
 logical, public, protected :: use_gw_front = .false.      ! Frontogenesis.
@@ -131,7 +136,9 @@ subroutine phys_ctl_readnl(nlfile)
       history_eddy, history_budget,  history_budget_histfile_num, history_waccm, &
       history_waccmx, history_chemistry, history_carma, history_clubb, history_dust, &
       history_cesm_forcing, history_scwaccm_forcing, history_chemspecies_srf, &
-      do_clubb_sgs, state_debug_checks, use_hetfrz_classnuc, use_gw_oro, use_gw_front, &
+      ! do_clubb_sgs, state_debug_checks, use_hetfrz_classnuc, use_gw_oro, use_gw_front, &
+      ! +KG
+      do_clubb_sgs, state_debug_checks, use_hetfrz_classnuc, use_b10_ndrop, use_gw_oro, use_gw_front, &
       use_gw_front_igw, use_gw_convect_dp, use_gw_convect_sh, cld_macmic_num_steps, &
       offline_driver, convproc_do_aer, cam_snapshot_before_num, cam_snapshot_after_num, &
       cam_take_snapshot_before, cam_take_snapshot_after, cam_physics_mesh
@@ -184,6 +191,8 @@ subroutine phys_ctl_readnl(nlfile)
    call mpi_bcast(do_clubb_sgs,                1,                     mpi_logical,   masterprocid, mpicom, ierr)
    call mpi_bcast(state_debug_checks,          1,                     mpi_logical,   masterprocid, mpicom, ierr)
    call mpi_bcast(use_hetfrz_classnuc,         1,                     mpi_logical,   masterprocid, mpicom, ierr)
+   ! +KG
+   call mpi_bcast(use_b10_ndrop,               1,                     mpi_logical,   masterprocid, mpicom, ierr)
    call mpi_bcast(use_gw_oro,                  1,                     mpi_logical,   masterprocid, mpicom, ierr)
    call mpi_bcast(use_gw_front,                1,                     mpi_logical,   masterprocid, mpicom, ierr)
    call mpi_bcast(use_gw_front_igw,            1,                     mpi_logical,   masterprocid, mpicom, ierr)

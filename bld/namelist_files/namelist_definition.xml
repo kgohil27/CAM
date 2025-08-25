@@ -2781,6 +2781,12 @@ Switch to turn on heterogeneous freezing code.
 Default: .false.
 </entry>
 
+<entry id="use_b10_ndrop" type="logical" category="microphys"
+       group="phys_ctl_nl" valid_values="" >
+Switch to turn on inertially-limited term from Barahona et al. (2010).
+Default: .false.
+</entry>
+
 <entry id="hist_hetfrz_classnuc" type="logical" category="microphys"
        group="hetfrz_classnuc_nl" valid_values="" >
 Add diagnostic output for heterogeneous freezing code.
