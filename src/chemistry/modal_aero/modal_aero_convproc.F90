@@ -1301,6 +1301,7 @@ jtsub_loop_main_aa: &
 ipass_calc_updraft_loop: &
       do ipass_calc_updraft = 1, npass_calc_updraft
 
+      write(iulog,*)'Checking idiag_in',idiag_in,'icol value=',icol
 
       if (idiag_in(icol) > 0) &
          write(lun,'(/a,3x,a,1x,i9,5i5)') 'qakr - convtype,lchnk,i,jt,mx,jtsub,ipass=', &
@@ -1506,6 +1507,7 @@ k_loop_main_bb: &
                      do_act_this_lev = .true.
                      kactcnt = 1
                      kactfirst = k
+                     write(iulog,*) 'checking if kactcnt<=0',kactcnt,do_act_this_lev
                      ! diagnostic fields
                      ! xx_wcldbase = w at first cloudy layer, estimated from mu and cldfrac
                      xx_wcldbase(icol) = (mu_i(kp1) + mu_i(k))*0.5_r8*hund_ovr_g &
@@ -2352,7 +2354,7 @@ end subroutine ma_convproc_tend
    use modal_aero_data, only:  lmassptr_amode, lmassptrcw_amode, &
       ntot_amode, &
       nspec_amode, ntot_amode, numptr_amode, numptrcw_amode, &
-      specdens_amode, spechygro, &
+      specdens_amode, spechygro, specmw_amode, &
       voltonumblo_amode, voltonumbhi_amode
 
    implicit none
@@ -2405,6 +2407,7 @@ end subroutine ma_convproc_tend
    real(r8) :: vaerosol(ntot_amode)   ! int+act volume (m3/m3)
    real(r8) :: wbar                  ! mean updraft velocity (cm/s)
    real(r8) :: wdiab                 ! diabatic vertical velocity (cm/s)
+   real(r8) :: h_ham
    real(r8) :: wminf, wmaxf          ! limits for integration over updraft spectrum (cm/s)
 
 
@@ -2455,7 +2458,9 @@ end subroutine ma_convproc_tend
          tmpc = tmpc + max( conent(lmassptrcw_amode(ll,n)+pcnst), 0.0_r8 )
          tmpc = tmpc / specdens_amode(ll,n)
          tmpa = tmpa + tmpc
-         tmpb = tmpb + tmpc * spechygro(ll,n)
+         ! tmpb = tmpb + tmpc * spechygro(ll,n)
+         h_ham = (specdens_amode(ll,n)*0.018 / (specmw_amode(ll,n)*1.))
+         tmpb = tmpb + tmpc * h_ham
       end do
       vaerosol(n) = tmpa * rhoair
       if (tmpa < 1.0e-35_r8) then
@@ -2610,10 +2615,16 @@ end subroutine ma_convproc_tend
    use ndrop, only: activate_modal
 
    use modal_aero_data, only:  lmassptr_amode, lmassptrcw_amode, &
-      ntot_amode, &
+      ntot_amode, dgnum_amode, &
       nspec_amode, ntot_amode, numptr_amode, numptrcw_amode, &
-      specdens_amode, spechygro, &
-      voltonumblo_amode, voltonumbhi_amode
+      specdens_amode, spechygro, specmw_amode, xname_massptr, &
+      voltonumblo_amode, voltonumbhi_amode, &
+      lptr_so4_a_amode, lptr_so4_cw_amode, &
+      lptr_msa_a_amode, lptr_msa_cw_amode, &
+      lptr_nh4_a_amode, lptr_nh4_cw_amode, &
+      lptr_no3_a_amode, lptr_no3_cw_amode, &
+      lptr_nacl_a_amode, lptr_nacl_cw_amode, &
+      lptr_dust_a_amode, lptr_dust_cw_amode
 
    use rad_constituents,only: rad_cnst_get_info
 
@@ -2667,6 +2678,9 @@ end subroutine ma_convproc_tend
    real(r8) :: vaerosol(ntot_amode)   ! int+act volume (m3/m3)
    real(r8) :: wbar                  ! mean updraft velocity (cm/s)
    real(r8) :: wdiab                 ! diabatic vertical velocity (cm/s)
+   real(r8) :: h_ham
+   real(r8) :: dg_nm
+   real(r8) :: vg_nm3
    real(r8) :: wminf, wmaxf          ! limits for integration over updraft spectrum (cm/s)
 
    character(len=32) :: spec_type
@@ -2727,18 +2741,62 @@ end subroutine ma_convproc_tend
          ! of POM here as 0.2 to enhance the wet scavenge of primary BC and POM.
 
          call rad_cnst_get_info(0, n, ll, spec_type=spec_type)
-         if (spec_type=='p-organic' .and. convproc_pom_spechygro>0._r8) then
-            tmpb = tmpb + tmpc * convproc_pom_spechygro
+         ! if (spec_type=='p-organic' .and. convproc_pom_spechygro>0._r8) then
+         if (spec_type=='p-organic') then
+           vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n)
+           ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * tmpc
+           dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+           h_ham = 1050 * (dg_nm ** -2.76)
+           tmpb = tmpb + tmpc * h_ham
+         ! else if (convproc_pom_spechygro == 0._r8) then
          else
-            tmpb = tmpb + tmpc * spechygro(ll,n)
+           ! tmpb = tmpb + tmpc * spechygro(ll,n)
+           if (spec_type == 'ammonium ' .OR. &
+               spec_type == 'sulfate  ') then
+               h_ham = 2.3 * (specdens_amode(ll,n)*0.018 / (specmw_amode(ll,n)*1.))
+               ! h_kohler = 2.3 * (specdens_amode(ll,n)*18 / (specmw_amode(ll,n)*1000.))
+           else if (spec_type == 'black-c  ') then
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n) / specdens_amode(ll,n)
+               vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n)
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * tmpc
+               dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+               h_ham = 3.81 * (dg_nm ** -1.85)
+               ! h_kohler = 4 * (dg_nm**(-2.15))
+           else if (spec_type == 'dust     ') then
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n) / specdens_amode(ll,n)
+               vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n)
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * tmpc
+               dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+               h_ham = 1.66 * (dg_nm ** -1.94)
+               ! h_kohler = 3.15 * (dg_nm**(-1.25))
+           else if (spec_type == 'seasalt  ') then
+               h_ham = 2 * (specdens_amode(ll,n)*0.018 / (specmw_amode(ll,n)*1.))
+               ! h_kohler = 2 * (specdens_amode(ll,n)*18 / (specmw_amode(ll,n)*1000.))
+           else if (spec_type == 's-organic') then
+               ! h_kohler = (specdens_amode(ll,n)*0.018 / (specmw_amode(ll,n)*1.))
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n) / specdens_amode(ll,n)
+               vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n)
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * tmpc
+               dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+               h_ham = 1.27 * (dg_nm ** -1.15)
+               ! h_kohler = 1050 * (dg_nm**(-2.6))
+           else if (spec_type == 'p-organic') then
+               ! h_ham = 0.
+               vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * lmassptr_amode(ll,n)
+               ! vg_nm3 = (3.14/6) * (dgnum_amode(n)**3) * tmpc
+               dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+               h_ham = 1.63 * (dg_nm ** -2.07)
+           end if
+           tmpb = tmpb + tmpc * h_ham
          end if
       end do
       vaerosol(n) = tmpa * rhoair
-      if (tmpa < 1.0e-35_r8) then
-         hygro(n) = 0.2_r8
-      else
-         hygro(n) = tmpb/tmpa
-      end if
+      hygro(n) = tmpb/tmpa
+      ! if (tmpa < 1.0e-35_r8) then
+      !    hygro(n) = 0.0_r8
+      ! else
+      !    hygro(n) = tmpb/tmpa
+      ! end if
 
 ! load a (or a+cw) number and bound it
       tmpa = max( conu(numptr_amode(n)), 0.0_r8 )

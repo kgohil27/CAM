@@ -465,6 +465,8 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
    ! calculates aerosol sw radiative properties
    
    use tropopause, only : tropopause_findChemTrop
+   
+   use modal_aero_data, only : dgnum_amode, lmassptr_amode, modename_amode
 
    integer,             intent(in) :: list_idx       ! index of the climate or a diagnostic list
    type(physics_state), intent(in), target :: state          ! state variables
@@ -495,6 +497,10 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
    complex(r8), pointer :: specrefindex(:)     ! species refractive index
    character*32         :: spectype            ! species type
    real(r8)             :: hygro_aer           ! 
+   
+   real(r8)             :: h_ham
+   real(r8)             :: dg_nm
+   real(r8)             :: vg_nm3
 
    real(r8), pointer :: dgnumwet(:,:)     ! number mode wet diameter
    real(r8), pointer :: qaerwat(:,:)      ! aerosol water (g/g)
@@ -597,6 +603,7 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
    integer  :: nerr_dopaer = 0
    real(r8) :: volf            ! volume fraction of insoluble aerosol
    character(len=*), parameter :: subname = 'modal_aero_sw'
+   character(len=32) :: tmpname
    !----------------------------------------------------------------------------
 
    lchnk = state%lchnk
@@ -732,6 +739,7 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
                call rad_cnst_get_aer_props(list_idx, m, l, density_aer=specdens, &
                                            refindex_aer_sw=specrefindex, spectype=spectype, &
                                            hygro_aer=hygro_aer)
+               call rad_cnst_get_info(list_idx, m, l, spec_name=tmpname)
 
                do i = 1, ncol
                   vol(i)      = specmmr(i,k)/specdens
@@ -755,7 +763,10 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
                         dustvol(i)    = vol(i)
                         scatdust(i)   = vol(i)*specrefr
                         absdust(i)    = -vol(i)*specrefi
-                        hygrodust(i)  = vol(i)*hygro_aer
+                        ! hygrodust(i)  = vol(i)*hygro_aer
+                        vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+                        dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10**9)
+                        hygrodust(i) = vol(i) * 1.66 * (dg_nm ** (-1.94))
                      end do
                   end if
 
@@ -772,7 +783,10 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
                         burdenbc(i) = burdenbc(i) + specmmr(i,k)*mass(i,k)
                         scatbc(i)   = vol(i)*specrefr
                         absbc(i)    = -vol(i)*specrefi
-                        hygrobc(i)  = vol(i)*hygro_aer
+                        ! hygrobc(i)  = vol(i)*hygro_aer
+                        vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+                        dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10**9)
+                        hygrobc(i) = vol(i) * 3.81 * (dg_nm ** (-1.85))
                    end do
                   end if
                   if (trim(spectype) == 'p-organic') then
@@ -780,7 +794,10 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
                         burdenpom(i) = burdenpom(i) + specmmr(i,k)*mass(i,k)
                         scatpom(i)   = vol(i)*specrefr
                         abspom(i)    = -vol(i)*specrefi
-                        hygropom(i)  = vol(i)*hygro_aer
+                        ! hygropom(i)  = vol(i)*hygro_aer
+                        vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+                        dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10**9)
+                        hygropom(i) = vol(i) * 1.63 * (dg_nm ** (-2.07))
                       end do
                   end if
                   if (trim(spectype) == 's-organic') then
@@ -788,7 +805,10 @@ subroutine modal_aero_sw(list_idx, state, pbuf, nnite, idxnite, &
                         burdensoa(i) = burdensoa(i) + specmmr(i,k)*mass(i,k)
                         scatsoa(i)   = vol(i)*specrefr
                         abssoa(i)    = -vol(i)*specrefi
-                        hygrosoa(i)  = vol(i)*hygro_aer
+                        ! hygrosoa(i)  = vol(i)*hygro_aer
+                        vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+                        dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10**9)
+                        hygrosoa(i) = vol(i) * 1.27 * (dg_nm ** (-1.15))
                      end do
                   end if
                   if (trim(spectype) == 'seasalt') then

@@ -973,6 +973,7 @@ contains
     use modal_aero_calcsize,   only: modal_aero_calcsize_sub
     use modal_aero_wateruptake,only: modal_aero_wateruptake_dr
     use modal_aero_convproc,   only: deepconv_wetdep_history, ma_convproc_intr, convproc_do_evaprain_atonce
+    use rad_constituents,      only: rad_cnst_get_info
 
     ! args
 
@@ -1023,6 +1024,7 @@ contains
                                            ! cloud-borne num & vol (0),
                                            ! interstitial num (1), interstitial vol (2)
     real(r8) :: tmpa, tmpb
+    real(r8) :: vg_nm3, dg_nm
     real(r8) :: tmpdust, tmpnacl
     real(r8) :: water_old, water_new ! temporary old/new aerosol water mix-rat
     logical  :: isprx(pcols,pver) ! true if precipation
@@ -1038,6 +1040,7 @@ contains
     real(r8), pointer :: rprdsh(:,:)     ! rain production, shallow convection
     real(r8), pointer :: evapcdp(:,:)    ! Evaporation rate of deep    convective precipitation >=0.
     real(r8), pointer :: evapcsh(:,:)    ! Evaporation rate of shallow convective precipitation >=0.
+    real(r8), pointer :: spec_hygro(:,:)
 
     real(r8) :: rprddpsum(pcols)
     real(r8) :: rprdshsum(pcols)
@@ -1068,6 +1071,7 @@ contains
     type(wetdep_inputs_t) :: dep_inputs
 
     real(r8) :: dcondt_resusp3d(2*pcnst,pcols, pver)
+    character(len=32)   :: tmpname
 
     lchnk = state%lchnk
     ncol  = state%ncol
@@ -1455,7 +1459,27 @@ contains
                 endif
 
                  if (do_hygro_sum_del) then
-                    tmpa = spechygro(lspec,m)/ &
+                    call rad_cnst_get_info(0, m, lspec, spec_type=tmpname)
+                    if (tmpname == 'black-c  ') then
+                       vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(lspec,m)
+                       dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+                       spec_hygro(lspec,m) = 3.81 * (dg_nm ** -1.85)
+                    else if (tmpname == 'dust     ') then
+                       vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(lspec,m)
+                       dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+                       spec_hygro(lspec,m) = 1.66 * (dg_nm ** -1.94)
+                    else if (tmpname == 's-organic') then
+                       vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(lspec,m)
+                       dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+                       spec_hygro(lspec,m) = 1.27 * (dg_nm ** -1.15)
+                    else if (tmpname == 'p-organic') then
+                       vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(lspec,m)
+                       dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+                       spec_hygro(lspec,m) = 1.63 * (dg_nm ** -2.07)
+                    else
+                       spec_hygro(lspec,m) = (0.018 * specdens_amode(lspec,m)) / (specmw_amode(lspec,m) * 1)
+                    end if
+                    tmpa = spec_hygro(lspec,m)/ &
                          specdens_amode(lspec,m)
                     tmpb = tmpa*dt
                     hygro_sum_old(1:ncol,:) = hygro_sum_old(1:ncol,:) &
