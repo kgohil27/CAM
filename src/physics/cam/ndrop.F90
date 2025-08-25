@@ -60,7 +60,7 @@ integer :: kvh_idx    = -1
 
 ! description of modal aerosols
 integer               :: ntot_amode     ! number of aerosol modes
-integer,  allocatable :: nspec_amode(:) ! number of chemical species in each aerosol mode
+integer,  allocatable, public :: nspec_amode(:) ! number of chemical species in each aerosol mode
 real(r8), allocatable :: sigmag_amode(:)! geometric standard deviation for each aerosol mode
 real(r8), allocatable :: dgnumlo_amode(:)
 real(r8), allocatable :: dgnumhi_amode(:)
@@ -253,8 +253,45 @@ subroutine ndrop_init
    call addfld('CCN4',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.2%')
    call addfld('CCN5',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.5%')
    call addfld('CCN6',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=1.0%')
-
-
+   
+   ! Modal kappa fields
+   call addfld('kappa_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode kappa')
+   call addfld('kappa_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode kappa')
+   call addfld('kappa_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode kappa')
+   call addfld('kappa_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon kappa')
+   
+   ! Species kappa for each mode fields
+   ! Dust kappa for each mode fields
+   call addfld('kappadust_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode dust kappa')
+   call addfld('kappadust_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode dust kappa')
+   call addfld('kappadust_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode dust kappa')
+   call addfld('kappadust_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon dust kappa')
+   ! Sulfate kappa for each mode fields
+   call addfld('kappaso4_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode SO4 kappa')
+   call addfld('kappaso4_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode SO4 kappa')
+   call addfld('kappaso4_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode SO4 kappa')
+   call addfld('kappaso4_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon SO4 kappa')
+   ! SOA kappa for each mode fields
+   call addfld('kappasoa_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode SOA kappa')
+   call addfld('kappasoa_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode SOA kappa')
+   call addfld('kappasoa_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode SOA kappa')
+   call addfld('kappasoa_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon SOA kappa')
+   ! POM kappa for each mode fields
+   call addfld('kappapom_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode POM kappa')
+   call addfld('kappapom_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode POM kappa')
+   call addfld('kappapom_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode POM kappa')
+   call addfld('kappapom_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon POM kappa')
+   ! Sea spray kappa for each mode fields
+   call addfld('kappass_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode SS kappa')
+   call addfld('kappass_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode SS kappa')
+   call addfld('kappass_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode SS kappa')
+   call addfld('kappass_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon SS kappa')
+   ! BC kappa for each mode fields
+   call addfld('kappabc_accum',     (/ 'lev' /), 'A', ' ', 'Accumulation mode BC kappa')
+   call addfld('kappabc_aitken',     (/ 'lev' /), 'A', ' ', 'Aitken mode BC kappa')
+   call addfld('kappabc_coarse',     (/ 'lev' /), 'A', ' ', 'Coarse mode BC kappa')
+   call addfld('kappabc_pcarbon',     (/ 'lev' /), 'A', ' ', 'Primary carbon BC kappa')
+   
    call addfld('WTKE',     (/ 'lev' /), 'A', 'm/s', 'Standard deviation of updraft velocity')
    call addfld('NDROPMIX', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number mixing')
    call addfld('NDROPSRC', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number source')
@@ -296,6 +333,9 @@ subroutine dropmixnuc( &
    ! doesn't distinguish between warm, cold clouds
 
    ! arguments
+   use modal_aero_data, only : specmw_amode, specdens_amode, modename_amode, &
+                               xname_massptr, dgnum_amode
+
    type(physics_state), target, intent(in)    :: state
    type(physics_ptend),         intent(out)   :: ptend
    real(r8),                    intent(in)    :: dtmicro     ! time step for microphysics (s)
@@ -364,6 +404,23 @@ subroutine dropmixnuc( &
    real(r8) :: wtke(pcols,pver)     ! turbulent vertical velocity at base of layer k (m/s)
    real(r8) :: wtke_cen(pcols,pver) ! turbulent vertical velocity at center of layer k (m/s)
    real(r8) :: wbar, wmix, wmin, wmax
+   real(r8) :: kappa_accum(pcols,pver)
+   real(r8) :: kappa_aitken(pcols,pver)
+   real(r8) :: kappa_coarse(pcols,pver)
+   real(r8) :: kappa_pcarbon(pcols,pver)
+
+   real(r8) :: kappadust_accum(pcols,pver), kappadust_aitken(pcols,pver), &
+               kappadust_coarse(pcols,pver), kappadust_pcarbon(pcols,pver)
+   real(r8) :: kappaso4_accum(pcols,pver), kappaso4_aitken(pcols,pver), &
+               kappaso4_coarse(pcols,pver), kappaso4_pcarbon(pcols,pver)
+   real(r8) :: kappasoa_accum(pcols,pver), kappasoa_aitken(pcols,pver), &
+               kappasoa_coarse(pcols,pver), kappasoa_pcarbon(pcols,pver)
+   real(r8) :: kappapom_accum(pcols,pver), kappapom_aitken(pcols,pver), &
+               kappapom_coarse(pcols,pver), kappapom_pcarbon(pcols,pver)
+   real(r8) :: kappass_accum(pcols,pver), kappass_aitken(pcols,pver), &
+               kappass_coarse(pcols,pver), kappass_pcarbon(pcols,pver)
+   real(r8) :: kappabc_accum(pcols,pver), kappabc_aitken(pcols,pver), &
+               kappabc_coarse(pcols,pver), kappabc_pcarbon(pcols,pver)
 
    real(r8) :: zn(pver)   ! g/pdel (m2/g) for layer
    real(r8) :: flxconv    ! convergence of flux into lowest layer
@@ -401,6 +458,12 @@ subroutine dropmixnuc( &
    real(r8) :: na(pcols), va(pcols), hy(pcols)
    real(r8), allocatable :: naermod(:)  ! (1/m3)
    real(r8), allocatable :: hygro(:)    ! hygroscopicity of aerosol mode
+   real(r8) :: hygrodust
+   real(r8) :: hygroso4
+   real(r8) :: hygrosoa
+   real(r8) :: hygropom
+   real(r8) :: hygross
+   real(r8) :: hygrobc
    real(r8), allocatable :: vaerosol(:) ! interstit+activated aerosol volume conc (cm3/cm3)
 
    real(r8) :: source(pver)
@@ -424,6 +487,7 @@ subroutine dropmixnuc( &
    real(r8), pointer :: rgas(:, :, :)
    real(r8), allocatable :: rgascol(:, :, :)
    real(r8), allocatable :: coltendgas(:)
+   character(len=32)   :: tmpname
    real(r8) :: zerogas(pver)
    character*200 fieldnamegas
 
@@ -698,10 +762,85 @@ subroutine dropmixnuc( &
                call loadaer( &
                   state, pbuf, i, i, k, &
                   m, cs, phase, na, va, &
-                  hy)
+                  hy, hygrodust, &
+                  hygroso4, hygrosoa, &
+                  hygropom, hygross, hygrobc)
                naermod(m)  = na(i)
                vaerosol(m) = va(i)
                hygro(m)    = hy(i)
+               if (TRIM(modename_amode(m)) == 'accum') then
+                  kappa_accum(i,k) = hygro(m)
+                  do l = 1, nspec_amode(m)
+                     call rad_cnst_get_info(0, m, l, spec_type=tmpname)
+                     if (TRIM(tmpname) == 'dust') then
+                        kappadust_accum(i,k) = hygrodust
+                     else if (TRIM(tmpname) == 'sulfate') then
+                        kappaso4_accum(i,k) = hygroso4
+                     else if (TRIM(tmpname) == 's-organic') then
+                        kappasoa_accum(i,k) = hygrosoa
+                     else if (TRIM(tmpname) == 'p-organic') then
+                        kappapom_accum(i,k) = hygropom
+                     else if (TRIM(tmpname) == 'seasalt') then
+                        kappass_accum(i,k) = hygross
+                     else if (TRIM(tmpname) == 'black-c') then
+                        kappabc_accum(i,k) = hygrobc
+                     end if
+                  end do
+               else if (TRIM(modename_amode(m)) == 'aitken') then
+                  kappa_aitken(i,k) = hygro(m)
+                  do l = 1, nspec_amode(m)
+                     call rad_cnst_get_info(0, m, l, spec_type=tmpname)
+                     if (TRIM(tmpname) == 'dust') then
+                        kappadust_aitken(i,k) = hygrodust
+                     else if (TRIM(tmpname) == 'sulfate') then
+                        kappaso4_aitken(i,k) = hygroso4
+                     else if (TRIM(tmpname) == 's-organic') then
+                        kappasoa_aitken(i,k) = hygrosoa
+                     else if (TRIM(tmpname) == 'p-organic') then
+                        kappapom_aitken(i,k) = hygropom
+                     else if (TRIM(tmpname) == 'seasalt') then
+                        kappass_aitken(i,k) = hygross
+                     else if (TRIM(tmpname) == 'black-c') then
+                        kappabc_aitken(i,k) = hygrobc
+                     end if
+                  end do
+               else if (TRIM(modename_amode(m)) == 'coarse') then
+                  kappa_coarse(i,k) = hygro(m)
+                  do l = 1, nspec_amode(m)
+                     call rad_cnst_get_info(0, m, l, spec_type=tmpname)
+                     if (TRIM(tmpname) == 'dust') then
+                        kappadust_coarse(i,k) = hygrodust
+                     else if (TRIM(tmpname) == 'sulfate') then
+                        kappaso4_coarse(i,k) = hygroso4
+                     else if (TRIM(tmpname) == 's-organic') then
+                        kappasoa_coarse(i,k) = hygrosoa
+                     else if (TRIM(tmpname) == 'p-organic') then
+                        kappapom_coarse(i,k) = hygropom
+                     else if (TRIM(tmpname) == 'seasalt') then
+                        kappass_coarse(i,k) = hygross
+                     else if (TRIM(tmpname) == 'black-c') then
+                        kappabc_coarse(i,k) = hygrobc
+                     end if
+                  end do
+               else if (TRIM(modename_amode(m)) == 'primary_carbon') then
+                  kappa_pcarbon(i,k) = hygro(m)
+                  do l = 1, nspec_amode(m)
+                     call rad_cnst_get_info(0, m, l, spec_type=tmpname)
+                     if (TRIM(tmpname) == 'dust') then
+                        kappadust_pcarbon(i,k) = hygrodust
+                     else if (TRIM(tmpname) == 'sulfate') then
+                        kappaso4_pcarbon(i,k) = hygroso4
+                     else if (TRIM(tmpname) == 's-organic') then
+                        kappasoa_pcarbon(i,k) = hygrosoa
+                     else if (TRIM(tmpname) == 'p-organic') then
+                        kappapom_pcarbon(i,k) = hygropom
+                     else if (TRIM(tmpname) == 'seasalt') then
+                        kappass_pcarbon(i,k) = hygross
+                     else if (TRIM(tmpname) == 'black-c') then
+                        kappabc_pcarbon(i,k) = hygrobc
+                     end if
+                  end do
+               end if
             end do
 
             call activate_modal( &
@@ -788,6 +927,15 @@ subroutine dropmixnuc( &
                   naermod(m)  = na(i)
                   vaerosol(m) = va(i)
                   hygro(m)    = hy(i)
+                  if (TRIM(modename_amode(m)) == 'accum') then
+                     kappa_accum(i,k) = hygro(m)
+                  else if (TRIM(modename_amode(m)) == 'coarse') then
+                     kappa_aitken(i,k) = hygro(m)
+                  else if (TRIM(modename_amode(m)) == 'coarse') then
+                     kappa_coarse(i,k) = hygro(m)
+                  else if (TRIM(modename_amode(m)) == 'primary_carbon') then
+                     kappa_pcarbon(i,k) = hygro(m)
+                  end if
                end do
 
                call activate_modal( &
@@ -1155,6 +1303,36 @@ subroutine dropmixnuc( &
    call outfld('NDROPSRC', nsource,  pcols, lchnk)
    call outfld('NDROPMIX', ndropmix, pcols, lchnk)
    call outfld('WTKE    ', wtke,     pcols, lchnk)
+   
+   call outfld('kappa_accum', kappa_accum,     pcols, lchnk)
+   call outfld('kappa_aitken', kappa_aitken,     pcols, lchnk)
+   call outfld('kappa_coarse', kappa_coarse,     pcols, lchnk)
+   call outfld('kappa_pcarbon', kappa_pcarbon,     pcols, lchnk)
+
+   call outfld('kappadust_accum', kappadust_accum,     pcols, lchnk)
+   call outfld('kappadust_aitken', kappadust_aitken,     pcols, lchnk)
+   call outfld('kappadust_coarse', kappadust_coarse,     pcols, lchnk)
+   call outfld('kappadust_pcarbon', kappadust_pcarbon,     pcols, lchnk)
+   call outfld('kappaso4_accum', kappaso4_accum,     pcols, lchnk)
+   call outfld('kappaso4_aitken', kappaso4_aitken,     pcols, lchnk)
+   call outfld('kappaso4_coarse', kappaso4_coarse,     pcols, lchnk)
+   call outfld('kappaso4_pcarbon', kappaso4_pcarbon,     pcols, lchnk)
+   call outfld('kappasoa_accum', kappasoa_accum,     pcols, lchnk)
+   call outfld('kappasoa_aitken', kappasoa_aitken,     pcols, lchnk)
+   call outfld('kappasoa_coarse', kappasoa_coarse,     pcols, lchnk)
+   call outfld('kappasoa_pcarbon', kappasoa_pcarbon,     pcols, lchnk)
+   call outfld('kappapom_accum', kappapom_accum,     pcols, lchnk)
+   call outfld('kappapom_aitken', kappapom_aitken,     pcols, lchnk)
+   call outfld('kappapom_coarse', kappapom_coarse,     pcols, lchnk)
+   call outfld('kappapom_pcarbon', kappapom_pcarbon,     pcols, lchnk)
+   call outfld('kappass_accum', kappass_accum,     pcols, lchnk)
+   call outfld('kappass_aitken', kappass_aitken,     pcols, lchnk)
+   call outfld('kappass_coarse', kappass_coarse,     pcols, lchnk)
+   call outfld('kappass_pcarbon', kappass_pcarbon,     pcols, lchnk)
+   call outfld('kappabc_accum', kappabc_accum,     pcols, lchnk)
+   call outfld('kappabc_aitken', kappabc_aitken,     pcols, lchnk)
+   call outfld('kappabc_coarse', kappabc_coarse,     pcols, lchnk)
+   call outfld('kappabc_pcarbon', kappabc_pcarbon,     pcols, lchnk)
 
    if(called_from_spcam) then  
         call outfld('SPLCLOUD  ', cldn    , pcols, lchnk   )
@@ -1760,7 +1938,6 @@ subroutine ccncalc(state, pbuf, cs, ccn)
    ! Ghan et al., Atmos. Res., 1993, 198-221.
 
    ! arguments
-
    type(physics_state), target, intent(in)    :: state
    type(physics_buffer_desc),   pointer       :: pbuf(:)
 
@@ -1831,7 +2008,7 @@ subroutine ccncalc(state, pbuf, cs, ccn)
             state, pbuf, 1, ncol, k, &
             m, cs, phase, naerosol, vaerosol, &
             hygro)
-
+         
          where(naerosol(:ncol)>1.e-3_r8)
             amcube(:ncol)=amcubecoef(m)*vaerosol(:ncol)/naerosol(:ncol)
             sm(:ncol)=smcoef(:ncol)/sqrt(hygro(:ncol)*amcube(:ncol)) ! critical supersaturation
@@ -1859,7 +2036,18 @@ end subroutine ccncalc
 subroutine loadaer( &
    state, pbuf, istart, istop, k, &
    m, cs, phase, naerosol, &
-   vaerosol, hygro)
+   vaerosol, hygro, hygrodust, hygroso4, &
+   hygrosoa, hygropom, hygross, hygrobc)
+   
+   use modal_aero_data, only : specmw_amode, specdens_amode, modename_amode, &
+                               xname_massptr, dgnum_amode, &
+                               lmassptr_amode, lmassptrcw_amode, &
+                               lptr_so4_a_amode, lptr_so4_cw_amode, &
+                               lptr_msa_a_amode, lptr_msa_cw_amode, &
+                               lptr_nh4_a_amode, lptr_nh4_cw_amode, &
+                               lptr_no3_a_amode, lptr_no3_cw_amode, &
+                               lptr_nacl_a_amode, lptr_nacl_cw_amode, &
+                               lptr_dust_a_amode, lptr_dust_cw_amode
 
    ! return aerosol number, volume concentrations, and bulk hygroscopicity
 
@@ -1878,6 +2066,12 @@ subroutine loadaer( &
    real(r8), intent(out) :: naerosol(:)  ! number conc (1/m3)
    real(r8), intent(out) :: vaerosol(:)  ! volume conc (m3/m3)
    real(r8), intent(out) :: hygro(:)     ! bulk hygroscopicity of mode
+   real(r8), optional, intent(out) :: hygrodust
+   real(r8), optional, intent(out) :: hygroso4
+   real(r8), optional, intent(out) :: hygrosoa
+   real(r8), optional, intent(out) :: hygropom
+   real(r8), optional, intent(out) :: hygross
+   real(r8), optional, intent(out) :: hygrobc
 
    ! internal
    integer  :: lchnk               ! chunk identifier
@@ -1885,35 +2079,51 @@ subroutine loadaer( &
    real(r8), pointer :: raer(:,:) ! interstitial aerosol mass, number mixing ratios
    real(r8), pointer :: qqcw(:,:) ! cloud-borne aerosol mass, number mixing ratios
    real(r8) :: specdens, spechygro
+   real(r8) :: h_base
+   real(r8) :: h_ham
+   real(r8) :: dg_nm
+   real(r8) :: vg_nm3
 
-   real(r8) :: vol(pcols) ! aerosol volume mixing ratio
+   real(r8) :: vol(pcols)       ! aerosol volume mixing ratio
+   real(r8) :: hygro_out(pcols,pver)   ! output hygroscopicity
+   real(r8) :: vaero_out(pcols,pver)   ! aerosol volume for hygroscopicity output
    integer  :: i, l
+   character(len=32)   :: tmpname
+   character(len=32)   :: tmpname_cw
    !-------------------------------------------------------------------------------
 
    lchnk = state%lchnk
 
    do i = istart, istop
-      vaerosol(i) = 0._r8
-      hygro(i)    = 0._r8
+      vaerosol(i)    = 0._r8
+      hygro(i)       = 0._r8
+      hygro_out(i,k) = 0._r8
+      vaero_out(i,k) = 0._r8
    end do
 
+   
    do l = 1, nspec_amode(m)
 
+      ! write(iulog,*)'Current mode value=',TRIM(modename_amode(m)),'; computing hygroscopicity'
       call rad_cnst_get_aer_mmr(0, m, l, 'a', state, pbuf, raer)
       call rad_cnst_get_aer_mmr(0, m, l, 'c', state, pbuf, qqcw)
       call rad_cnst_get_aer_props(0, m, l, density_aer=specdens, hygro_aer=spechygro)
+      call rad_cnst_get_info(0, m, l, spec_type=tmpname)
 
       if (phase == 3) then
          do i = istart, istop
             vol(i) = max(raer(i,k) + qqcw(i,k), 0._r8)/specdens
+            ! vol(i) = max(raer(i,k) + qqcw(i,k), 0._r8)/specdens_amode(l,m)
          end do
       else if (phase == 2) then
          do i = istart, istop
             vol(i) = max(qqcw(i,k), 0._r8)/specdens
+            ! vol(i) = max(qqcw(i,k), 0._r8)/specdens_amode(l,m)
          end do
       else if (phase == 1) then
          do i = istart, istop
             vol(i) = max(raer(i,k), 0._r8)/specdens
+            ! vol(i) = max(raer(i,k), 0._r8)/specdens_amode(l,m)
          end do
       else
          write(iulog,*)'phase=',phase,' in loadaer'
@@ -1922,19 +2132,95 @@ subroutine loadaer( &
 
       do i = istart, istop
          vaerosol(i) = vaerosol(i) + vol(i)
-         hygro(i)    = hygro(i) + vol(i)*spechygro
+         vaero_out(i,k) = vaero_out(i,k) + vol(i)
+         if (tmpname == 'ammonium ' .OR. & 
+             tmpname == 'sulfate  ') then
+             h_ham = 2.3 * (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+             if (PRESENT(hygroso4)) then
+                hygroso4 = h_ham
+             end if
+             ! h_kohler = 2.3 * (18 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1000)
+         else if (tmpname == 'black-c  ') then
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m) / specdens_amode(l,m)
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * vol(i)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 3.81 * (dg_nm ** -1.85)
+             if (PRESENT(hygrobc)) then
+                hygrobc = h_ham
+             end if
+             ! h_kohler = 4. * (dg_nm**(-2.15))
+         else if (tmpname == 'dust     ' ) then
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m) / specdens_amode(l,m)
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * vol(i)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.66 * (dg_nm ** -1.94)
+             if (PRESENT(hygrodust)) then
+                hygrodust = h_ham
+             end if
+             ! h_kohler = 3.15 * (dg_nm**(-1.25))
+         else if (tmpname == 'seasalt  ') then
+             h_ham = 1 * (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+             if (PRESENT(hygross)) then
+                hygross = h_ham
+             end if
+             ! h_kohler = 2 * (18 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1000)
+         else if (tmpname == 's-organic') then
+             ! h_kohler = (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m) / specdens_amode(l,m)
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * vol(i)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.27 * (dg_nm ** -1.15)
+             if (PRESENT(hygrosoa)) then
+                hygrosoa = h_ham
+             end if
+             ! h_kohler = 1050 * (dg_nm**(-2.6))
+         else if (tmpname == 'p-organic') then
+             ! h_ham = 0.1
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             ! vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * vol(i)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.63 * (dg_nm ** -2.07)
+             if (PRESENT(hygropom)) then
+                hygropom = h_ham
+             end if
+         else
+             h_ham = 1 * (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+         end if
+         hygro_out(i,k) = hygro_out(i,k) + vol(i)*h_ham
+         hygro(i)       = hygro(i) + vol(i)*h_ham
+         h_base         = hygro(i) + vol(i)*spechygro
       end do
-
+      hygro_out(i,k)    = hygro_out(i,k)/vaero_out(i,k)
+      ! if (TRIM(modename_amode(m)) == 'accum') then
+         ! write(iulog,*)'Mode volume=',vaero_out,'; diagnosing HAM'
+         ! write(iulog,*)'Accum hygroscopicity=',hygro_out,'; diagnosing HAM'
+         ! write(iulog,*)'Accum hygroscopicity=',hygro_out,'; diagnosing HAM'
+         ! call outfld('kappa_accum', (hygro_out/vaero_out),     pcols, lchnk)
+      ! else if (TRIM(modename_amode(m)) == 'aitken') then
+         ! write(iulog,*)'Aitken hygroscopicity=',hygro/vaerosol,'; diagnosing HAM'
+         ! call outfld('kappa_aitken', hygro_out,     pcols, lchnk)
+      ! else if (TRIM(modename_amode(m)) == 'coarse') then
+         ! write(iulog,*)'Coarse hygroscopicity=',hygro/vaerosol,'; diagnosing HAM'
+         ! call outfld('kappa_coarse', hygro_out,     pcols, lchnk)
+      ! else if (TRIM(modename_amode(m)) == 'primary_carbon') then
+         ! write(iulog,*)'Primary carbon hygroscopicity=',hygro/vaerosol,'; diagnosing HAM'
+         ! call outfld('kappa_pcarbon', hygro_out,     pcols, lchnk)
+      ! end if
    end do
 
    do i = istart, istop
-      if (vaerosol(i) > 1.0e-30_r8) then   ! +++xl add 8/2/2007
-         hygro(i)    = hygro(i)/(vaerosol(i))
-         vaerosol(i) = vaerosol(i)*cs(i,k)
-      else
-         hygro(i)    = 0.0_r8
-         vaerosol(i) = 0.0_r8
-      end if
+      hygro(i)    = hygro(i)/(vaerosol(i))
+      vaerosol(i) = vaerosol(i)*cs(i,k)
+      ! if (vaerosol(i) > 1.0e-30_r8) then   ! +++xl add 8/2/2007
+      !    hygro(i)    = hygro(i)/(vaerosol(i))
+      !    vaerosol(i) = vaerosol(i)*cs(i,k)
+      ! else
+      !    hygro(i)    = 0.0_r8
+      !    vaerosol(i) = 0.0_r8
+      ! end if
    end do
 
    ! aerosol number
