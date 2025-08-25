@@ -19,7 +19,9 @@ use physics_types,    only: physics_state, physics_ptend, physics_ptend_init
 use physics_buffer,   only: physics_buffer_desc, pbuf_get_index, pbuf_get_field
 
 use wv_saturation,    only: qsat
-use phys_control,     only: phys_getopts
+! use phys_control,     only: phys_getopts
+! +KG
+use phys_control,     only: phys_getopts, use_b10_ndrop
 use ref_pres,         only: top_lev => trop_cloud_top_lev
 use shr_spfn_mod,     only: erf => shr_spfn_erf
 use rad_constituents, only: rad_cnst_get_info, rad_cnst_get_mode_num, rad_cnst_get_aer_mmr, &
@@ -45,6 +47,11 @@ real(r8) :: aten
 real(r8) :: surften       ! surface tension of water w/respect to air (N/m)
 real(r8) :: alog2, alog3, alogaten
 real(r8) :: third, twothird, sixth, zero
+! +KG
+! logical to include the inertially-limiting term
+logical  :: inert_lim = .false.    ! set flag to true to consider inertially-limited CCN (Barahona et al. 2010)
+real(r8) :: half, sixt_nine, n_eight
+! -KG
 real(r8) :: sq2, sqpi
 
 ! CCN diagnostic fields
@@ -116,6 +123,17 @@ subroutine ndrop_init
    sixth    = 1._r8/6._r8
    sq2      = sqrt(2._r8)
    sqpi     = sqrt(pi)
+   
+   ! +KG
+   half     = 1._r8/2._r8
+   sixt_nine= 16._r8/9._r8
+   n_eight  = 9._r8/8._r8
+   
+   if (use_b10_ndrop) then
+      write(iulog,*)'implimenting Barahona et al. (2010)'
+      inert_lim=.true.
+   end if
+   ! -KG
 
    t0       = 273._r8
    surften  = 0.076_r8
@@ -572,7 +590,6 @@ subroutine dropmixnuc( &
 
    factnum = 0._r8
    wtke = 0._r8
-   tendnd = 0._r8
 
    if (prog_modal_aero) then
       ! aerosol tendencies
@@ -621,8 +638,10 @@ subroutine dropmixnuc( &
 
          ! rce-comment - define wtke at layer centers for new-cloud activation
          !    and at layer boundaries for old-cloud activation
+         !++ag
          wtke_cen(i,k) = wsub(i,k)
          wtke(i,k)     = wsub(i,k)
+         !--ag
          wtke_cen(i,k) = max(wtke_cen(i,k), wmixmin)
          wtke(i,k)     = max(wtke(i,k), wmixmin)
 
@@ -1681,7 +1700,8 @@ subroutine activate_modal(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
          if ( present( smax_prescribed ) ) then
             smax = smax_prescribed
          else
-            call maxsat(zeta,eta,nmode,smc,smax)
+            ! call maxsat(zeta,eta,nmode,smc,smax)
+            call maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nmode, na, smc, hygro, smax)
          endif
          !	      write(iulog,*)'w,smax=',w,smax
 
@@ -1746,7 +1766,7 @@ subroutine activate_modal(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
          gold=g
          wold=w
          dw=dwnew
-         if (n > 1 .and. (w > wmax .or. fnmin > fmax)) exit
+         if (n > 1 .and. (w > wmax .or. fnmin > fmax)) exit   ! this if statement is like a failsafe to exit the iterative loop for `w`
          w=w+dw
          if (n == nx) then
             write(iulog,*)'do loop is too short in activate'
@@ -1850,7 +1870,8 @@ subroutine activate_modal(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
             if ( present(smax_prescribed) ) then
                smax = smax_prescribed
             else
-               call maxsat(zeta, eta, nmode, smc, smax)
+               ! call maxsat(zeta, eta, nmode, smc, smax)
+               call maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nmode, na, smc, hygro, smax)
             end if
          end if
 
@@ -1886,6 +1907,8 @@ subroutine maxsat(zeta,eta,nmode,smc,smax)
    !      Abdul-Razzak and Ghan, A parameterization of aerosol activation.
    !      2. Multiple aerosol types. J. Geophys. Res., 105, 6837-6844.
 
+   use modal_aero_data,  only : modename_amode
+   
    integer,  intent(in)  :: nmode ! number of modes
    real(r8), intent(in)  :: smc(nmode) ! critical supersaturation for number mode radius
    real(r8), intent(in)  :: zeta(nmode)
@@ -1917,14 +1940,273 @@ subroutine maxsat(zeta,eta,nmode,smc,smax)
          g2sqrt=sqrt(g2)
          g2=g2sqrt*g2
          sum=sum+(f1(m)*g1+f2(m)*g2)/(smc(m)*smc(m))
+         write(iulog,*)'modal supersaturation ',modename_amode(m),smc(m)
       else
          sum=1.e20_r8
       endif
    enddo
 
    smax=1._r8/sqrt(sum)
+   write(iulog,*)'max supersaturation ',smax
 
 end subroutine maxsat
+
+!===============================================================================
+
+subroutine maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nmode, na, smc, hygro, smax)
+
+   !      Calculates maximum supersaturation for multiple
+   !      competing aerosol modes.
+
+   !      Combines features from FN2000 and B10
+   !      Droplet activation incorporating population splitting
+   !      Option to explicitly treat inertially-limited CCN
+   
+   !      Fountoukis and Nenes (2005), Continued development of a cloud droplet formation
+   !      parameterization for global climate models. JGR: Atmospheres, 110(D11). 
+   
+   !      Barahona et al. (2010), Comprehensively accounting for the effect of giant CCN in
+   !      cloud activation parameterizations. Atmos. Chem. and Phys. 10.5 (2010)
+   
+   !      input
+
+   real(r8), intent(in)  :: tair          ! air temperature (K)
+   real(r8), intent(in)  :: wnuc          ! might need to check on this...
+   real(r8), intent(in)  :: rhoair        ! air density (kg/m3)
+   integer,  intent(in)  :: nmode         ! number of modes
+   real(r8), intent(in)  :: na(nmode)     ! number concentration of each mode
+   real(r8), intent(in)  :: smc(nmode)    ! critical supersaturation for number mode radius
+   real(r8), intent(in)  :: hygro(nmode)  ! modal hygroscopicity
+   real(r8), intent(in)  :: zeta(nmode)
+   real(r8), intent(in)  :: eta(nmode)
+   
+   !      output
+   
+   real(r8), intent(out) :: smax ! maximum supersaturation
+   
+   !      local
+
+   integer,  parameter :: nx=400              ! max number of iterations to calculate smax
+   real(r8), parameter :: tolerance=1.e-8_r8  ! tolerance for iterating for smax
+   real(r8), parameter :: p0 = 1013.25e2_r8   ! reference pressure (Pa)
+   real(r8) :: smaxmin    ! minimum possible value of maxsat
+   real(r8) :: smaxmax    ! maximum possible value of maxsat
+   integer  :: m  ! mode index
+   integer  :: n  ! interator index
+   real(r8) :: sum, g1, g2, g1sqrt, g2sqrt
+   real(r8) :: diff0, conduct0
+   real(r8) :: dqsdt             ! change in qs with temperature
+   real(r8) :: alpha
+   real(r8) :: beta
+   real(r8) :: gamma
+   real(r8) :: grow
+   real(r8) :: sqrtg
+   real(r8) :: zeta_c
+   real(r8) :: na_total          ! total aerosol number concentration
+   real(r8) :: pres              ! pressure (Pa)
+   real(r8) :: es                ! saturation vapor pressure
+   real(r8) :: qs                ! water vapor saturation mixing ratio
+   real(r8) :: sum_integ1        ! sum of I1(0,spart)
+   real(r8) :: sum_integ2        ! sum of I2(spart,smax)
+   real(r8) :: smax_low, smax_high   ! minimum and maximum roots for the bisection method
+   real(r8) :: smax_opt              ! optimum root for the bisection method corresponding to smax
+   character(len=*), parameter :: subname='maxsat_PopSplit'
+   
+   smaxmin=1.e-6_r8    ! initial minimum value of maxsat --> multiply by 100 for percent
+   smaxmax=1._r8    ! initial maximum value of maxsat --> multiply by 100 for percent
+   
+   ! initializing na_total with 0
+   na_total = 0._r8
+   do m=1,nmode
+      na_total=na_total+na(m)
+   end do
+   
+   pres     = rair*rhoair*tair
+   diff0    = 0.211e-4_r8*(p0/pres)*(tair/t0)**1.94_r8
+   conduct0 = (5.69_r8+0.017_r8*(tair-t0))*4.186e2_r8*1.e-5_r8               ! convert to J/m/s/deg
+   call qsat(tair, pres, es, qs)
+   dqsdt    = latvap/(rh2o*tair*tair)*qs
+   alpha    = gravit*(latvap/(cpair*rh2o*tair*tair)-1._r8/(rair*tair))
+   dqsdt    = latvap/(rh2o*tair*tair)*qs
+   ! gamma    = (1.0_r8+latvap/cpair*dqsdt)/(rhoair*qs)
+   gamma    = (pres*rh2o/(es*rair))+(latvap*latvap/(tair*tair*rh2o*cpair))   ! calculate based on how it is done in activate_modal
+   grow     = 1._r8/(rhoh2o/(diff0*rhoair*qs)  &
+              + latvap*rhoh2o/(conduct0*tair)*(latvap/(rh2o*tair) - 1._r8))
+   sqrtg    = sqrt(grow)
+   beta     = 2*rhoair*alpha*wnuc/(pi*rhoh2o*gamma*grow)
+   ! beta     = 2*alpha*wnuc/(pi*rhoh2o*gamma*grow)
+   
+   do m=1,nmode
+      if((zeta(m) .gt. 1.e5_r8*eta(m)) .or. (smc(m)*smc(m) .gt. 1.e5_r8*eta(m))) then
+         ! Aerosol not activating due to not enough water vapor
+         smax=1.e-20_r8
+      else
+         ! Exit if and calculate activation for all modes
+         exit
+      endif
+      if (m == nmode) return
+
+   end do
+  
+   ! smax=smaxmin       ! starting guess for maxsat
+   ! inert_term=0._r8   ! initial value for the inertially-limited CCN
+   
+   ! zeta_c=(sixt_nine*alpha*wnuc*(aten*aten)/grow)**0.25_r8
+   zeta_c=(sixt_nine*alpha*wnuc*(aten*aten)/grow)
+   
+   ! Initial calculations of integral values for the lower and upper bound of smax
+   ! calculating for the initial minimum smax value
+   call SmaxIntegrate(smc, hygro, tair, nmode, smaxmin, na_total, &
+                      zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   smax_low=smaxmin*(sum_integ1+sum_integ2)-beta
+   
+   ! calculating for the initial maximum smax value
+   call SmaxIntegrate(smc, hygro, tair, nmode, smaxmax, na_total, &
+                      zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   smax_high=smaxmax*(sum_integ1+sum_integ2)-beta
+   
+   do n=1,nx
+      
+      ! iterating to perform bisection and obtain smax
+      smax=0.5_r8*(smaxmin+smaxmax)
+      call SmaxIntegrate(smc, hygro, tair, nmode, smax, na_total, &
+                         zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+      smax_opt=smax*(sum_integ1+sum_integ2)-beta
+      
+      if (smax_low*smax_opt .le. 0._r8) then
+         smax_high=smax_opt
+         smaxmax=smax
+      else if (smax_high*smax_opt .le. 0._r8) then
+         smax_low=smax_opt
+         smaxmin=smax
+      end if
+      
+      ! check if the root has been found by comparing with the tolerance
+      ! if (smaxmax-smaxmin .le. tolerance*smaxmin) then
+      if (smaxmax-smaxmin .le. tolerance) then
+         exit
+      end if
+      
+      if (n == nx) then
+         write(iulog,*)'do loop is too short to optimize smax'
+         call endrun(subname)
+      end if
+      
+   end do
+   
+   ! Finalize bisection with one more intersection
+   ! smax=0.5_r8*(smaxmin+smaxmax)*100._r8
+   smax=0.5_r8*(smaxmin+smaxmax)
+   call SmaxIntegrate(smc, hygro, tair, nmode, smax, na_total, &
+                      zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   smax_opt=smax*(sum_integ1+sum_integ2)-beta
+
+end subroutine maxsat_PopSplit
+
+!===============================================================================
+
+subroutine SmaxIntegrate(smc, hygro, tair, nmode, smax, na_total, &
+                         zeta_c, na, grow, wnuc, alpha, &
+                         sum_integ1, sum_integ2)
+   
+   ! Integration subroutine for the population splitting method
+   ! Would be called at least 3 times depending on the optimization
+   ! Likely need more terms to be added in the future
+   
+   use modal_aero_data,  only : modename_amode
+   
+   !   input
+   
+   real(r8), intent(in)  :: smc(nmode)    ! modal critical supersaturation
+   real(r8), intent(in)  :: hygro(nmode)  ! modal hygroscopicity
+   real(r8), intent(in)  :: tair          ! air temperature
+   integer,  intent(in)  :: nmode         ! number of modes
+   real(r8), intent(in)  :: smax
+   real(r8), intent(in)  :: zeta_c
+   real(r8), intent(in)  :: na(nmode)     ! number concentration of each mode
+   real(r8), intent(in)  :: wnuc          ! might need to check on this...
+   real(r8), intent(in)  :: grow
+   real(r8), intent(in)  :: alpha
+   real(r8), intent(in)  :: na_total      ! aerosol total number concentration
+   
+   !   output
+   
+   real(r8),  intent(out) :: sum_integ1   ! I(0,spart) term of the integral
+   real(r8),  intent(out) :: sum_integ2   ! I(spart,smax) term of the integral
+   
+   !   local
+   
+   integer  :: m                     ! mode index
+   real(r8) :: spart                 ! partition supersaturation
+   real(r8) :: delta, delta_
+   real(r8) :: integ1(nmode)
+   real(r8) :: integ2(nmode)
+   real(r8) :: integ1_fact1, integ1_fact2
+   ! real(r8) :: d_eq(nmode)           ! modal equilibrium diameter
+   real(r8) :: d_eq           ! modal equilibrium diameter
+   real(r8) :: log_sigma, log_smc_smax, log_smc_spart
+   real(r8) :: u_smax, u_spart, log_factor
+   real(r8) :: erf_u_smax, erf_u_spart, erf_u_spart_plus
+   real(r8) :: inert_term
+   
+   ! defining parameters for the calculation
+   ! delta=(1-(zeta_c/smax)**4._r8)
+   delta=smax**4._r8-zeta_c
+   delta_=1-zeta_c/(smax**4._r8)
+   
+   if (delta .lt. 0._r8) then
+      spart=smax*min(2.e7_r8*aten/3*(smax**-0.3824), 1._r8)
+   else
+      ! spart=smax*sqrt(0.5_r8*sqrt(1+delta_))
+      ! spart=smax*sqrt(0.5_r8*(1+sqrt(delta_)))
+      spart=sqrt(0.5_r8*(smax**4 + sqrt(delta)))
+   end if
+   
+   ! initializing I1 and I2
+   sum_integ1=0._r8
+   sum_integ2=0._r8
+   
+   ! inert term will be changed later when B10 is included
+   ! set to 0 for now
+   inert_term=0._r8
+      
+   do m=1,nmode
+      
+      ! calculation of partial integrals to estimate smax
+      ! next step is to approximate the smax using bisection method
+      log_sigma=alogsig(m)              ! log of modal standard deviation
+      log_smc_smax=log(smc(m)/smax)     ! log(s_i/s_max)
+      log_smc_spart=log(smc(m)/spart)   ! log(s_i/s_part)
+      
+      u_smax=twothird*log_smc_smax/(sq2*log_sigma)     ! `u` expression, eq (9) from Abdul-Razzak and Ghan (1998)
+      u_spart=twothird*log_smc_spart/(sq2*log_sigma)   ! `u` expression, for spart
+      log_factor=3._r8*log_sigma/(2._r8*sq2)
+      
+      erf_u_smax=erf(u_smax-log_factor)     ! erf for eq (18) and (19)
+      erf_u_spart=erf(u_spart-log_factor)   ! erf for eq (18) and (19)
+      erf_u_spart_plus=erf(u_spart+3._r8*log_sigma/sq2)
+      
+      ! d_eq(m)=aten*2._r8/(smc(m)*3._r8*sqrt(3._r8))                                   ! equilibrium (critical) diameter for the mode
+      ! d_eq(m)=twothird*aten*(1/(2*hygro(m)*sqrt(log(1._r8+smc(m)))))**(1._r8/3._r8)   ! equilibrium (critical) diameter for the mode
+      ! d_eq(m)=8._r8*0.072_r8/(3._r8*rh2o*tair*1000._r8*smc(m))
+      
+      integ1_fact1=1-erf(u_spart)
+      integ1_fact2=half*(smc(m)/smax)*(smc(m)/smax)*exp(9*half*log_sigma*log_sigma)*(1-erf_u_spart_plus)
+      integ1(m)=half*na(m)*sqrt(grow/(alpha*wnuc))*smax*(integ1_fact1-integ1_fact2)
+      integ2(m)=third*aten*na(m)/smc(m)*exp(n_eight*log_sigma*log_sigma)*(erf_u_spart-erf_u_smax)
+      
+      if (inert_lim) then
+         ! d_eq=twothird*aten/(sqrt(3._r8)*spart)
+         inert_term=third*aten*na(m)/smc(m)*exp(n_eight*log_sigma*log_sigma)*(erf_u_spart-1)
+      end if
+      write(iulog,*)'kinetic limitation term ',inert_term
+      
+      sum_integ1=sum_integ1+integ1(m)+inert_term
+      sum_integ2=sum_integ2+integ2(m)
+   
+   end do
+   
+end subroutine SmaxIntegrate
 
 !===============================================================================
 
