@@ -1,7 +1,15 @@
 module aerosol_state_mod
-  use shr_kind_mod, only: r8 => shr_kind_r8
+  use shr_kind_mod,           only: r8 => shr_kind_r8
   use aerosol_properties_mod, only: aerosol_properties, aero_name_len
-  use physconst, only: pi
+  use physconst,              only: pi
+  ! +KG --Date: 04/09/2026--
+  use phys_control,           only: use_hygroham_ndrop
+  ! -KG
+
+  ! +KG --Date: 04/09/2026--
+  ! logical to implement HAM hygroscopicity
+  logical  :: do_hygroham = .false.    ! set flag to true to consider HAM hygroscopicity parameters (Gohil et al. 2022)
+  ! -KG
 
   implicit none
 
@@ -305,6 +313,18 @@ contains
                        naerosol, vaerosol, hygro, errnum, errstr, pom_hygro)
 
     use aerosol_properties_mod, only: aerosol_properties
+    
+    ! +KG --Date: 11/19/2025--
+    use modal_aero_data,        only : specmw_amode, specdens_amode, modename_amode, &
+                                       lmassptr_amode, dgnum_amode
+    ! -KG
+    
+    ! +KG --Date: 04/09/2026--
+    if (use_hygroham_ndrop) then
+       write(iulog,*)'Implimenting HAM hygroscopicity from Gohil et al. (2022)'
+       do_hygroham=.true.
+    end if
+    ! -KG
 
     ! input arguments
     class(aerosol_state), intent(in) :: self
@@ -331,10 +351,20 @@ contains
     real(r8), pointer :: raer(:,:) ! interstitial aerosol mass, number mixing ratios
     real(r8), pointer :: qqcw(:,:) ! cloud-borne aerosol mass, number mixing ratios
     real(r8) :: specdens, spechygro
+    ! +KG --Date: 11/19/2025--
+    real(r8) :: h_base
+    real(r8) :: h_ham
+    real(r8) :: dg_nm
+    real(r8) :: vg_nm3
     character(len=aero_name_len) :: spectype
+    ! -KG
 
     real(r8) :: vol(istart:istop) ! aerosol volume mixing ratio
     integer  :: i, l
+    ! +KG --Date: 11/19/2025--
+    character(len=32)   :: tmpname
+    character(len=32)   :: tmpname_cw
+    ! -KG
     !-------------------------------------------------------------------------------
     errnum = 0
 
@@ -348,11 +378,16 @@ contains
        call self%get_ambient_mmr(l,m, raer)
        call self%get_cldbrne_mmr(l,m, qqcw)
        call aero_props%get(m,l, density=specdens, hygro=spechygro, spectype=spectype)
-       if (present(pom_hygro)) then
-          if (spectype=='p-organic'.and.pom_hygro>0._r8) then
-             spechygro=pom_hygro
-          endif
-       endif
+       ! +KG --Date: 11/19/2025--
+       call aero_props%species_type(m, l, spectype=tmpname)
+       ! -KG
+       
+       ! -KG --Date: 11/19/2025--
+       ! if (present(pom_hygro)) then
+       !    if (spectype=='p-organic'.and.pom_hygro>0._r8) then
+       !       spechygro=pom_hygro
+       !    endif
+       ! endif
 
        if (phase == 3) then
           do i = istart, istop
@@ -373,13 +408,46 @@ contains
        end if
 
        do i = istart, istop
+          ! +KG: modified hygroscopicity parameterization --Date: 11/19/2025--
+          if (tmpname == 'ammonium ' .OR. & 
+             tmpname == 'sulfate  ') then
+             ! h_ham = 2.3 * (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+             h_ham = 0.605_r8
+          else if (tmpname == 'seasalt  ') then
+             ! h_ham = 1 * (0.018 * specdens_amode(l,m)) / (specmw_amode(l,m) * 1)
+             h_ham = 1.16_r8
+          else if (tmpname == 'black-c  ') then
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 3.81 * (dg_nm ** -1.85)
+          else if (tmpname == 'dust     ' ) then
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.66 * (dg_nm ** -1.94)
+          else if (tmpname == 's-organic') then
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.27 * (dg_nm ** -1.15)
+          else if (tmpname == 'p-organic') then
+             vg_nm3 = (3.14/6) * (dgnum_amode(m)**3) * lmassptr_amode(l,m)
+             dg_nm = ( (6 * vg_nm3 / 3.14)**0.33 ) * (10.**9)
+             h_ham = 1.63 * (dg_nm ** -2.07)
+          end if
           vaerosol(i) = vaerosol(i) + vol(i)
-          hygro(i)    = hygro(i) + vol(i)*spechygro
+          if (do_hygroham) then
+             hygro(i)    = hygro(i) + vol(i)*h_ham
+          else
+             hygro(i)    = hygro(i) + vol(i)*spechygro
+          end if
+          ! -KG
        end do
 
     end do
 
     do i = istart, istop
+       ! +KG --Date: 11/19/2025--
+       ! hygro(i)    = hygro(i)/(vaerosol(i))
+       ! vaerosol(i) = vaerosol(i)*cs(i,k)
        if (vaerosol(i) > 1.0e-30_r8) then
           hygro(i)    = hygro(i)/(vaerosol(i))
           vaerosol(i) = vaerosol(i)*cs(i,k)
@@ -387,6 +455,7 @@ contains
           hygro(i)    = 0.0_r8
           vaerosol(i) = 0.0_r8
        end if
+       ! -KG
     end do
 
     ! aerosol number mixing ratios (#/kg)
@@ -927,7 +996,7 @@ contains
     real(r8) :: totmmr(ncol,nlev)
     real(r8) :: solmmr(ncol,nlev)
     integer :: ispc
-    real(r8) :: spechygro
+    character(len=aero_name_len) :: spectype
 
     sol_factb(:,:) = 0.0_r8
 
@@ -936,16 +1005,38 @@ contains
 
     do ispc = 1, aero_props%nspecies(bin_ndx)
 
-       call aero_props%get(bin_ndx, ispc, hygro=spechygro)
+       call aero_props%species_type(bin_ndx, ispc, spectype)
        call self%get_ambient_mmr(ispc, bin_ndx, aer_mmr)
 
        totmmr(:ncol,:) = totmmr(:ncol,:) + aer_mmr(:ncol,:)
-       solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*spechygro
+
+       if (trim(spectype) == 'sulfate') then
+          solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*0.5_r8
+       end if
+       if (trim(spectype) == 'p-organic') then
+          solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*0.2_r8
+       end if
+       if (trim(spectype) == 's-organic') then
+          solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*0.2_r8
+       end if
+       if (trim(spectype) == 'dust') then
+          solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*0.1_r8
+       end if
+       if (trim(spectype) == 'seasalt') then
+          solmmr(:ncol,:) = solmmr(:ncol,:) + aer_mmr(:ncol,:)*0.8_r8
+       end if
 
     end do   !nspec
 
     where ( totmmr > 0._r8 )
        sol_factb = solmmr/totmmr
+    end where
+
+    where ( sol_factb > 0.8_r8 )
+       sol_factb = 0.8_r8
+    end where
+    where ( sol_factb < 0.1_r8 )
+       sol_factb = 0.1_r8
     end where
 
   end function sol_factb_interstitial

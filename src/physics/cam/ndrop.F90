@@ -18,7 +18,10 @@ use physics_types,    only: physics_state, physics_ptend, physics_ptend_init
 use physics_buffer,   only: physics_buffer_desc, pbuf_get_index, pbuf_get_field
 
 use wv_saturation,    only: qsat
-use phys_control,     only: phys_getopts
+! use phys_control,     only: phys_getopts
+! +KG --Date: 11/19/2025--
+use phys_control,     only: phys_getopts, use_popsplit_ndrop, use_b10_ndrop
+! -KG
 use ref_pres,         only: top_lev => trop_cloud_top_lev
 use shr_spfn_mod,     only: erf => shr_spfn_erf
 use cam_history,      only: addfld, add_default, horiz_only, fieldname_len, outfld
@@ -44,6 +47,15 @@ real(r8), parameter :: sq2pi    = sqrt(2._r8*pi)
 real(r8), parameter :: sqpi     = sqrt(pi)
 real(r8), parameter :: surften  = 0.076_r8
 real(r8), parameter :: tmelt    = 273._r8
+! +KG --Date: 11/19/2025--
+! parameters to use for the new activation parameterization
+real(r8), parameter :: half     = 1._r8/2._r8
+real(r8), parameter :: sixt_nine= 16._r8/9._r8
+real(r8), parameter :: n_eight  = 9._r8/8._r8
+! logicals to include the inertially-limiting term
+logical  :: popsplit_actn = .false.    ! set flag to true to consider ``population splitting`` CCN activation (Fountoukis and Nenes 2005)
+logical  :: inert_lim = .false.    ! set flag to true to consider inertially-limited giant CCN (Barahona et al. 2010)
+! -KG
 
 real(r8) :: aten
 
@@ -90,6 +102,18 @@ subroutine ndrop_init(aero_props)
    call cnst_get_ind('NUMLIQ', numliq_idx)
 
    kvh_idx = pbuf_get_index('kvh')
+   
+   ! +KG --Date: 11/19/2025--
+   if (use_popsplit_ndrop) then
+      write(iulog,*)'Implimenting Fountoukis and Nenes (2005)'
+      popsplit_actn=.true.
+   end if
+
+   if (use_b10_ndrop) then
+      write(iulog,*)'Implimenting Barahona et al. (2010)'
+      inert_lim=.true.
+   end if
+   ! -KG
 
    aten = 2._r8*mwh2o*surften/(r_universal*tmelt*rhoh2o)
 
@@ -135,10 +159,10 @@ subroutine ndrop_init(aero_props)
 
          ! Add tendency fields to the history only when prognostic MAM is enabled.
          long_name = trim(tmpname) // ' dropmixnuc mixnuc column tendency'
-         call addfld(fieldname(mm),    horiz_only, 'A', unit, long_name, sampled_on_subcycle=.true.)
+         call addfld(fieldname(mm),    horiz_only, 'A', unit, long_name)
 
          long_name = trim(tmpname_cw) // ' dropmixnuc mixnuc column tendency'
-         call addfld(fieldname_cw(mm), horiz_only, 'A', unit, long_name, sampled_on_subcycle=.true.)
+         call addfld(fieldname_cw(mm), horiz_only, 'A', unit, long_name)
 
          if (history_aerosol) then
             call add_default(fieldname(mm), 1, ' ')
@@ -148,19 +172,19 @@ subroutine ndrop_init(aero_props)
       end do
    end do
 
-   call addfld('CCN1',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.02%', sampled_on_subcycle=.true.)
-   call addfld('CCN2',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.05%', sampled_on_subcycle=.true.)
-   call addfld('CCN3',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.1%',  sampled_on_subcycle=.true.)
-   call addfld('CCN4',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.2%',  sampled_on_subcycle=.true.)
-   call addfld('CCN5',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.5%',  sampled_on_subcycle=.true.)
-   call addfld('CCN6',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=1.0%',  sampled_on_subcycle=.true.)
+   call addfld('CCN1',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.02%')
+   call addfld('CCN2',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.05%')
+   call addfld('CCN3',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.1%')
+   call addfld('CCN4',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.2%')
+   call addfld('CCN5',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=0.5%')
+   call addfld('CCN6',(/ 'lev' /), 'A','#/cm3','CCN concentration at S=1.0%')
 
 
-   call addfld('WTKE',     (/ 'lev' /), 'A', 'm/s', 'Standard deviation of updraft velocity', sampled_on_subcycle=.true.)
-   call addfld('NDROPMIX', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number mixing', sampled_on_subcycle=.true.)
-   call addfld('NDROPSRC', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number source', sampled_on_subcycle=.true.)
-   call addfld('NDROPSNK', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number loss by microphysics', sampled_on_subcycle=.true.)
-   call addfld('NDROPCOL', horiz_only,  'A', '#/m2', 'Column droplet number', sampled_on_subcycle=.true.)
+   call addfld('WTKE',     (/ 'lev' /), 'A', 'm/s', 'Standard deviation of updraft velocity')
+   call addfld('NDROPMIX', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number mixing')
+   call addfld('NDROPSRC', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number source')
+   call addfld('NDROPSNK', (/ 'lev' /), 'A', '#/kg/s', 'Droplet number loss by microphysics')
+   call addfld('NDROPCOL', horiz_only,  'A', '#/m2', 'Column droplet number')
 
    ! set the add_default fields
    if (history_amwg) then
@@ -173,7 +197,7 @@ end subroutine ndrop_init
 
 subroutine dropmixnuc( aero_props, aero_state, &
    state, ptend, dtmicro, pbuf, wsub, wmixmin, &
-   cldn, cldo, cldliqf, tendnd, factnum)
+   cldn, cldo, cldliqf, tendnd, factnum, from_spcam)
 
    ! vertical diffusion and nucleation of cloud droplets
    ! assume cloud presence controlled by cloud fraction
@@ -195,6 +219,7 @@ subroutine dropmixnuc( aero_props, aero_state, &
    real(r8), intent(in) :: cldn(pcols,pver)    ! cloud fraction
    real(r8), intent(in) :: cldo(pcols,pver)    ! cloud fraction on previous time step
    real(r8), intent(in) :: cldliqf(pcols,pver) ! liquid cloud fraction (liquid / (liquid + ice))
+   logical,  intent(in),optional :: from_spcam ! value insignificant - if variable present, is called from spcam
 
    ! output arguments
    real(r8), intent(out) :: tendnd(pcols,pver) ! change in droplet number concentration (#/kg/s)
@@ -310,6 +335,7 @@ subroutine dropmixnuc( aero_props, aero_state, &
    real(r8) :: zerogas(pver)
    character*200 fieldnamegas
 
+   logical  :: called_from_spcam
    integer :: errnum
    character(len=shr_kind_cs) :: errstr
    !-------------------------------------------------------------------------------
@@ -371,6 +397,14 @@ subroutine dropmixnuc( aero_props, aero_state, &
    ! Init pointers to mode number and specie mass mixing ratios in
    ! intersitial and cloud borne phases.
    call aero_state%get_states( aero_props, raer, qqcw )
+
+   called_from_spcam = (present(from_spcam))
+
+   if (called_from_spcam) then
+      rgas  => state%q
+      allocate(rgascol(pver, pcnst, 2))
+      allocate(coltendgas(pcols))
+   endif
 
    factnum = 0._r8
    wtke = 0._r8
@@ -440,11 +474,30 @@ subroutine dropmixnuc( aero_props, aero_state, &
          raercol(top_lev:pver,mm,nsav)    = raer(mm)%fld(i,top_lev:pver)
       end do
 
+      if (called_from_spcam) then
+      !
+      ! In the MMF model, turbulent mixing for tracer species are turned off.
+      ! So the turbulent for gas species mixing are added here.
+      ! (Previously, it had the turbulent mixing for aerosol species)
+      !
+         do m=1, pcnst
+            if (cnst_species_class(m) == cnst_spec_class_gas) rgascol(:,m,nsav) = rgas(i,:,m)
+         end do
+
+      endif
+
       ! droplet nucleation/aerosol activation
 
       ! tau_cld_regenerate = time scale for regeneration of cloudy air
       !    by (horizontal) exchange with clear air
       tau_cld_regenerate = 3600.0_r8 * 3.0_r8
+
+      if (called_from_spcam) then
+      ! when this is called  in the MMF part, no cloud regeneration and decay.
+      ! set the time scale be very long so that no cloud regeneration.
+           tau_cld_regenerate = 3600.0_r8 * 24.0_r8 * 365.0_r8
+      endif
+
 
       ! k-loop for growing/shrinking cloud calcs .............................
       ! grow_shrink_main_k_loop: &
@@ -890,6 +943,21 @@ subroutine dropmixnuc( aero_props, aero_state, &
             end do
          end do
 
+         if (called_from_spcam) then
+         !
+         ! turbulent mixing for gas species .
+         !
+               do m=1, pcnst
+                  if (cnst_species_class(m) == cnst_spec_class_gas) then
+                    flxconv = 0.0_r8
+                    zerogas(:) = 0.0_r8
+                    call explmix(rgascol(1,m,nnew),zerogas,ekkp,ekkm,overlapp,overlapm,  &
+                                 rgascol(1,m,nsav),zero, flxconv, pver,dtmix,&
+                                   .true., zerogas)
+                  end if
+               end do
+         endif
+
       end do ! old_cloud_nsubmix_loop
 
       ! evaporate particles again if no cloud (either ice or liquid)
@@ -948,6 +1016,18 @@ subroutine dropmixnuc( aero_props, aero_state, &
          end do
       end do
 
+      if (called_from_spcam) then
+      !
+      ! Gas tendency
+      !
+           do m=1, pcnst
+              if (cnst_species_class(m) == cnst_spec_class_gas) then
+                ptend%lq(m) = .true.
+                ptend%q(i, :, m) = (rgascol(:,m,nnew)-rgas(i,:,m)) * dtinv
+              end if
+           end do
+      endif
+
    end do  ! overall_main_i_loop
    ! end of main loop over i/longitude ....................................
 
@@ -955,6 +1035,11 @@ subroutine dropmixnuc( aero_props, aero_state, &
    call outfld('NDROPSRC', nsource,  pcols, lchnk)
    call outfld('NDROPMIX', ndropmix, pcols, lchnk)
    call outfld('WTKE    ', wtke,     pcols, lchnk)
+
+   if(called_from_spcam) then
+        call outfld('SPLCLOUD  ', cldn    , pcols, lchnk   )
+        call outfld('SPKVH     ', kvh     , pcols, lchnk   )
+   endif
 
    call ccncalc(aero_state, aero_props, state, cs, ccn)
    do l = 1, psat
@@ -969,6 +1054,22 @@ subroutine dropmixnuc( aero_props, aero_state, &
          call outfld(fieldname_cw(mm), coltend_cw(:,mm), pcols, lchnk)
       end do
    end do
+
+   if(called_from_spcam) then
+   !
+   ! output column-integrated Gas tendency (this should be zero)
+   !
+        do m=1, pcnst
+            if (cnst_species_class(m) == cnst_spec_class_gas) then
+              do i=1, ncol
+                 coltendgas(i) = sum( pdel(i,:)*ptend%q(i,:,m) )/gravit
+              end do
+              fieldnamegas = trim(cnst_name(m)) // '_mixnuc1sp'
+              call outfld( trim(fieldnamegas), coltendgas, pcols, lchnk)
+            end if
+        end do
+        deallocate(rgascol, coltendgas)
+   end if
 
    deallocate( &
       nact,       &
@@ -1260,7 +1361,13 @@ subroutine activate_aerosol(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
          if ( present( smax_prescribed ) ) then
             smax = smax_prescribed
          else
-            smax = aero_props%maxsat(zeta,eta,smc)
+            ! +KG --Date: 04/09/2026--
+            if (popsplit_actn) then
+               call maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nbins, na, smc, hygro, smax, aero_props)
+            else
+               smax = aero_props%maxsat(zeta,eta,smc)
+            end if
+            ! -KG
          endif
 
          call aero_props%actfracs( nbins, smc(nbins), smax, fnew, fm(nbins) )
@@ -1418,7 +1525,13 @@ subroutine activate_aerosol(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
             if ( present(smax_prescribed) ) then
                smax = smax_prescribed
             else
-               smax = aero_props%maxsat(zeta,eta,smc)
+               ! +KG --Date: 04/09/2026--
+               if (popsplit_actn) then
+                  call maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nbins, na, smc, hygro, smax, aero_props)
+               else
+                  smax = aero_props%maxsat(zeta,eta,smc)
+               end if
+               ! -KG
             end if
          end if
 
@@ -1437,6 +1550,265 @@ subroutine activate_aerosol(wbar, sigw, wdiab, wminf, wmaxf, tair, rhoair,  &
    endif
 
 end subroutine activate_aerosol
+
+!===============================================================================
+
+subroutine maxsat_PopSplit(tair, wnuc, rhoair, zeta, eta, nbin, na, smc, hygro, smax, aero_props)
+
+   !      Calculates maximum supersaturation for multiple
+   !      competing aerosol modes.
+
+   !      Combines features from FN2000 and B10
+   !      Droplet activation incorporating population splitting
+   !      Option to explicitly treat inertially-limited CCN
+
+   !      Fountoukis and Nenes (2005), Continued development of a cloud droplet formation
+   !      parameterization for global climate models. JGR: Atmospheres, 110(D11).
+
+   !      Barahona et al. (2010), Comprehensively accounting for the effect of giant CCN in
+   !      cloud activation parameterizations. Atmos. Chem. and Phys. 10.5 (2010)
+
+   use spmd_utils, only : masterproc
+   class(aerosol_properties), intent(in) :: aero_props
+
+   !      input
+
+   real(r8), intent(in)  :: tair          ! air temperature (K)
+   real(r8), intent(in)  :: wnuc          ! might need to check on this...
+   real(r8), intent(in)  :: rhoair        ! air density (kg/m3)
+   integer,  intent(in)  :: nbin          ! number of bins/modes --> works with modes for now
+   real(r8), intent(in)  :: na(nbin)      ! number concentration of each bin/mode
+   real(r8), intent(in)  :: smc(nbin)     ! critical supersaturation for number bin/mode radius
+   real(r8), intent(in)  :: hygro(nbin)   ! bin/modal hygroscopicity
+   real(r8), intent(in)  :: zeta(nbin)
+   real(r8), intent(in)  :: eta(nbin)
+
+   !      output
+
+   real(r8), intent(out) :: smax ! maximum supersaturation
+
+   !      local
+
+   integer,  parameter :: nx=50              ! max number of iterations to calculate smax
+   ! real(r8), parameter :: tolerance=1.e-7_r8  ! tolerance for iterating for smax
+   real(r8), parameter :: tolerance=1.e-4_r8  ! tolerance for iterating for smax
+   real(r8), parameter :: p0 = 1013.25e2_r8   ! reference pressure (Pa)
+   real(r8) :: smaxmin    ! minimum possible value of maxsat
+   real(r8) :: smaxmax    ! maximum possible value of maxsat
+   integer  :: m  ! mode index
+   integer  :: n  ! interator index
+   real(r8) :: sum, g1, g2, g1sqrt, g2sqrt
+   real(r8) :: diff0, conduct0
+   real(r8) :: dqsdt             ! change in qs with temperature
+   real(r8) :: alpha
+   real(r8) :: beta
+   real(r8) :: gamma
+   real(r8) :: grow
+   real(r8) :: sqrtg
+   real(r8) :: zeta_c
+   real(r8) :: na_total          ! total aerosol number concentration
+   real(r8) :: pres              ! pressure (Pa)
+   real(r8) :: es                ! saturation vapor pressure
+   real(r8) :: qs                ! water vapor saturation mixing ratio
+   real(r8) :: sum_integ1        ! sum of I1(0,spart)
+   real(r8) :: sum_integ2        ! sum of I2(spart,smax)
+   real(r8) :: smax_low, smax_high   ! minimum and maximum roots for the bisection method
+   real(r8) :: smax_opt              ! optimum root for the bisection method corresponding to smax
+   character(len=*), parameter :: subname='maxsat_PopSplit'
+
+   smaxmin=1.e-6_r8    ! initial minimum value of maxsat --> multiply by 100 for percent
+   smaxmax=1._r8    ! initial maximum value of maxsat --> multiply by 100 for percent
+
+   ! initializing na_total with 0
+   na_total = 0._r8
+   do m=1,nbin
+      na_total=na_total+na(m)
+   end do
+
+   pres     = rair*rhoair*tair
+   diff0    = 0.211e-4_r8*(p0/pres)*(tair/tmelt)**1.94_r8
+   conduct0 = (5.69_r8+0.017_r8*(tair-tmelt))*4.186e2_r8*1.e-5_r8               ! convert to J/m/s/deg
+   call qsat(tair, pres, es, qs)
+   dqsdt    = latvap/(rh2o*tair*tair)*qs
+   alpha    = gravit*(latvap/(cpair*rh2o*tair*tair)-1._r8/(rair*tair))
+   dqsdt    = latvap/(rh2o*tair*tair)*qs
+   ! gamma    = (1.0_r8+latvap/cpair*dqsdt)/(rhoair*qs)
+   gamma    = (pres*rh2o/(es*rair))+(latvap*latvap/(tair*tair*rh2o*cpair))   ! calculate based on how it is done in activate_modal
+   grow     = 1._r8/(rhoh2o/(diff0*rhoair*qs)  &
+              + latvap*rhoh2o/(conduct0*tair)*(latvap/(rh2o*tair) - 1._r8))
+   sqrtg    = sqrt(grow)
+   beta     = 2*rhoair*alpha*wnuc/(pi*rhoh2o*gamma*grow)
+   ! beta     = 2*alpha*wnuc/(pi*rhoh2o*gamma*grow)
+
+   do m=1,nbin
+      if((zeta(m) .gt. 1.e5_r8*eta(m)) .or. (smc(m)*smc(m) .gt. 1.e5_r8*eta(m))) then
+         ! Aerosol not activating due to not enough water vapor
+         smax=1.e-20_r8
+      else
+         ! Exit if and calculate activation for all modes
+         exit
+      endif
+      if (m == nbin) return
+
+   end do
+
+   ! smax=smaxmin       ! starting guess for maxsat
+   ! inert_term=0._r8   ! initial value for the inertially-limited CCN
+
+   zeta_c=(sixt_nine*alpha*wnuc*(aten*aten)/grow)
+
+   ! Initial calculations of integral values for the lower and upper bound of smax
+   ! calculating for the initial minimum smax value
+   call SmaxIntegrate(smc, hygro, tair, nbin, smaxmin, na_total, aero_props, &
+                      zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   smax_low=smaxmin*(sum_integ1+sum_integ2)-beta
+
+   ! calculating for the initial maximum smax value
+   call SmaxIntegrate(smc, hygro, tair, nbin, smaxmax, na_total, aero_props, &
+                      zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   smax_high=smaxmax*(sum_integ1+sum_integ2)-beta
+
+   do n=1,nx
+
+      ! iterating to perform bisection and obtain smax
+      smax=0.5_r8*(smaxmin+smaxmax)
+      call SmaxIntegrate(smc, hygro, tair, nbin, smax, na_total, aero_props, &
+                         zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+      smax_opt=smax*(sum_integ1+sum_integ2)-beta
+
+      if (smax_low*smax_opt .le. 0._r8) then
+         ! smax_high=smax_opt
+         smaxmax=smax
+      else if (smax_high*smax_opt .le. 0._r8) then
+         ! smax_low=smax_opt
+         smaxmin=smax
+      end if
+
+      ! write(iulog,*)'smax=',smax
+      ! write(iulog,*)smaxmax,smax_high,smaxmin,smax_low
+      ! write(iulog,*)'smax low, smax high=',smax_low,smax_high
+      ! check if the root has been found by comparing with the tolerance
+      ! if (smaxmax-smaxmin .le. tolerance*smaxmin) then
+      if (smaxmax-smaxmin .le. tolerance) then
+         smax=0.5_r8*(smaxmin+smaxmax)
+         ! write(iulog,*)'Exiting PopSplit loop!',smax,n
+         exit
+      end if
+      
+      if (n == nx) then
+         if (masterproc) then
+            ! The exponent might need to be very small instead - little smax for no activation
+            ! smax=1.e20_r8
+            smax=1.e-20_r8
+            ! write(iulog,*)'do loop is too short to optimize smax',smax
+            ! call endrun(subname)
+         end if
+      end if
+
+   end do
+
+   ! Finalize bisection with one more intersection
+   ! smax=0.5_r8*(smaxmin+smaxmax)*100._r8
+   ! call SmaxIntegrate(smc, hygro, tair, nmode, smax, na_total, &
+   !                    zeta_c, na, grow, wnuc, alpha, sum_integ1, sum_integ2)
+   ! smax_opt=smax*(sum_integ1+sum_integ2)-beta
+
+end subroutine maxsat_PopSplit
+
+!===============================================================================
+
+subroutine SmaxIntegrate(smc, hygro, tair, nbin, smax, na_total, aero_props, &
+                         zeta_c, na, grow, wnuc, alpha, &
+                         sum_integ1, sum_integ2)
+
+   ! Integration subroutine for the population splitting method
+   ! Would be called at least 3 times depending on the optimization
+   ! Likely need more terms to be added in the future
+
+   use modal_aero_data,  only : modename_amode
+   class(aerosol_properties), intent(in) :: aero_props
+
+   !   input
+
+   real(r8), intent(in)  :: smc(nbin)     ! bin/modal critical supersaturation
+   real(r8), intent(in)  :: hygro(nbin)   ! bin/modal hygroscopicity
+   real(r8), intent(in)  :: tair          ! air temperature
+   integer,  intent(in)  :: nbin          ! number of bins/modes
+   real(r8), intent(in)  :: smax
+   real(r8), intent(in)  :: zeta_c
+   real(r8), intent(in)  :: na(nbin)      ! number concentration of each bin/mode
+   real(r8), intent(in)  :: wnuc          ! might need to check on this...
+   real(r8), intent(in)  :: grow
+   real(r8), intent(in)  :: alpha
+   real(r8), intent(in)  :: na_total      ! aerosol total number concentration
+
+   !   output
+
+   real(r8),  intent(out) :: sum_integ1   ! I(0,spart) term of the integral
+   real(r8),  intent(out) :: sum_integ2   ! I(spart,smax) term of the integral
+
+   !   local
+
+   integer  :: m                     ! bin/mode index
+   real(r8) :: spart                 ! partition supersaturation
+   real(r8) :: delta, delta_
+   real(r8) :: integ1(nbin)
+   real(r8) :: integ2(nbin)
+   real(r8) :: integ1_fact1, integ1_fact2
+   real(r8) :: log_sigma, log_smc_smax, log_smc_spart
+   real(r8) :: u_smax, u_spart, log_factor
+   real(r8) :: erf_u_smax, erf_u_spart, erf_u_spart_plus
+   real(r8) :: inert_term
+
+   ! defining parameters for the calculation
+   delta=smax**4._r8-zeta_c
+   delta_=1-zeta_c/(smax**4._r8)
+
+   if (delta .lt. 0._r8) then
+      spart=smax*min(2.e7_r8*aten/3*(smax**-0.3824), 1._r8)
+   else
+      spart=smax*sqrt(0.5_r8*(1+sqrt(delta_)))
+   end if
+
+   ! initializing I1 and I2
+   sum_integ1=0._r8
+   sum_integ2=0._r8
+
+   ! inert term will be changed later when B10 is included
+   ! set to 0 for now
+   inert_term=0._r8
+
+   do m=1,nbin
+
+      ! calculation of partial integrals to estimate smax
+      ! next step is to approximate the smax using bisection method
+      log_sigma=aero_props%alogsig(m)   ! log of modal standard deviation
+      log_smc_smax=log(smc(m)/smax)     ! log(s_i/s_max)
+      log_smc_spart=log(smc(m)/spart)   ! log(s_i/s_part)
+
+      u_smax=twothird*log_smc_smax/(sq2*log_sigma)     ! `u` expression, eq (9) from Abdul-Razzak and Ghan (1998)
+      u_spart=twothird*log_smc_spart/(sq2*log_sigma)   ! `u` expression, for spart
+      log_factor=3._r8*log_sigma/(2._r8*sq2)
+
+      erf_u_smax=erf(u_smax-log_factor)     ! erf for eq (18) and (19)
+      erf_u_spart=erf(u_spart-log_factor)   ! erf for eq (18) and (19)
+      erf_u_spart_plus=erf(u_spart+3._r8*log_sigma/sq2)
+
+      integ1_fact1=1-erf(u_spart)
+      integ1_fact2=half*(smc(m)/smax)*(smc(m)/smax)*exp(9*half*log_sigma*log_sigma)*(1-erf_u_spart_plus)
+      integ1(m)=half*na(m)*sqrt(grow/(alpha*wnuc))*smax*(integ1_fact1-integ1_fact2)
+      integ2(m)=third*aten*na(m)/smc(m)*exp(n_eight*log_sigma*log_sigma)*(erf_u_spart-erf_u_smax)
+
+      if (inert_lim) then
+         inert_term=third*aten*na(m)/smc(m)*exp(n_eight*log_sigma*log_sigma)*(erf_u_spart-1)
+      end if
+
+      sum_integ1=sum_integ1+integ1(m)+inert_term
+      sum_integ2=sum_integ2+integ2(m)
+
+   end do
+
+end subroutine SmaxIntegrate
 
 !===============================================================================
 
