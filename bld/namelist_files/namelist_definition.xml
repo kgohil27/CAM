@@ -2605,10 +2605,17 @@ cloud ice (cldice).
 Default: .true., except for carma=cirrus and carma=carma_dust
 </entry>
 
+<<<<<<< HEAD
 <entry id="micro_mg_do_dropshattering" type="logical" category="microphys"
        group="micro_mg_nl" valid_values="" >
 Switch to control whether MG microphysics should prognose
 cloud ice (cldice) based on droplet shattering mechanism.
+=======
+<entry id="micro_mg_do_icecol" type="logical" category="microphys"
+       group="micro_mg_nl" valid_values="" >
+Switch to control whether MG microphysics should prognose
+cloud ice (cldice) based on ice-ice collision mechanism.
+>>>>>>> origin/sip_iceicecollision
 Default: .false., except for carma=cirrus and carma=carma_dust
 </entry>
 

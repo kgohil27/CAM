@@ -84,7 +84,11 @@ real(r8) :: micro_mg_max_nicons        = unset_r8  ! max allowed ice number conc
 logical, public :: do_cldliq ! Prognose cldliq flag
 logical, public :: do_cldice ! Prognose cldice flag
 ! +KG
+<<<<<<< HEAD
 logical, public :: do_dropshattering ! Prognose droplet shattering flag
+=======
+logical, public :: do_icecol ! Prognose ice-ice collision flag
+>>>>>>> origin/sip_iceicecollision
 ! -KG
 
 integer :: num_steps ! Number of MG substeps
@@ -257,7 +261,11 @@ subroutine micro_pumas_cam_readnl(nlfile)
   ! Namelist variables
   logical :: micro_mg_do_cldice = .true. ! do_cldice = .true., MG microphysics is prognosing cldice
   ! +KG
+<<<<<<< HEAD
   logical :: micro_mg_do_dropshattering = .false. ! do_dropshattering = .false., MG microphysics is prognosing droplet shattering
+=======
+  logical :: micro_mg_do_icecol = .false. ! do_icecol = .false., MG microphysics is prognosing ice-ice collision
+>>>>>>> origin/sip_iceicecollision
   ! -KG
   logical :: micro_mg_do_cldliq = .true. ! do_cldliq = .true., MG microphysics is prognosing cldliq
   integer :: micro_mg_num_steps = 1      ! Number of substepping iterations done by MG (1.5 only for now).
@@ -269,7 +277,11 @@ subroutine micro_pumas_cam_readnl(nlfile)
 
   namelist /micro_mg_nl/ micro_mg_version, micro_mg_sub_version, &
        ! +KG
+<<<<<<< HEAD
        micro_mg_do_cldice, micro_mg_do_dropshattering, &
+=======
+       micro_mg_do_cldice, micro_mg_do_icecol, &
+>>>>>>> origin/sip_iceicecollision
        micro_mg_do_cldliq, micro_mg_num_steps, &
        ! -KG
        microp_uniform, micro_mg_dcs, micro_mg_precip_frac_method, &
@@ -304,7 +316,11 @@ subroutine micro_pumas_cam_readnl(nlfile)
      ! set local variables
      do_cldice = micro_mg_do_cldice
      ! +KG
+<<<<<<< HEAD
      do_dropshattering = micro_mg_do_dropshattering
+=======
+     do_icecol = micro_mg_do_icecol
+>>>>>>> origin/sip_iceicecollision
      ! -KG
      do_cldliq = micro_mg_do_cldliq
      num_steps = micro_mg_num_steps
@@ -368,8 +384,13 @@ subroutine micro_pumas_cam_readnl(nlfile)
   if (ierr /= 0) call endrun(sub//": FATAL: mpi_bcast: do_cldice")
 
   ! +KG
+<<<<<<< HEAD
   call mpi_bcast(do_dropshattering, 1, mpi_logical, mstrid, mpicom, ierr)
   if (ierr /= 0) call endrun(sub//": FATAL: mpi_bcast: do_dropshattering")
+=======
+  call mpi_bcast(do_icecol, 1, mpi_logical, mstrid, mpicom, ierr)
+  if (ierr /= 0) call endrun(sub//": FATAL: mpi_bcast: do_icecol")
+>>>>>>> origin/sip_iceicecollision
   ! -KG
 
   call mpi_bcast(do_cldliq, 1, mpi_logical, mstrid, mpicom, ierr)
@@ -504,7 +525,11 @@ subroutine micro_pumas_cam_readnl(nlfile)
      write(iulog,*) '  micro_mg_sub_version        = ', micro_mg_sub_version
      write(iulog,*) '  micro_mg_do_cldice          = ', do_cldice
      ! +KG
+<<<<<<< HEAD
      write(iulog,*) '  micro_mg_do_dropshattering  = ', do_dropshattering
+=======
+     write(iulog,*) '  micro_mg_do_icecol          = ', do_icecol
+>>>>>>> origin/sip_iceicecollision
      ! -KG
      write(iulog,*) '  micro_mg_do_cldliq          = ', do_cldliq
      write(iulog,*) '  micro_mg_num_steps          = ', num_steps
@@ -929,7 +954,11 @@ subroutine micro_pumas_cam_init(pbuf2d)
            micro_mg_do_hail,micro_mg_do_graupel, &
            ! +KG
            microp_uniform, &
+<<<<<<< HEAD
            do_cldice, do_dropshattering, use_hetfrz_classnuc, &
+=======
+           do_cldice, do_icecol, use_hetfrz_classnuc, &
+>>>>>>> origin/sip_iceicecollision
            ! -KG
            micro_mg_precip_frac_method, micro_mg_berg_eff_factor, &
            micro_mg_accre_enhan_fact , &
